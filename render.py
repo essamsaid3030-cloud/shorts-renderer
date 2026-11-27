@@ -184,6 +184,8 @@ def commons(prompt):
                 if len(b)>10000: print("commons",q,ii["thumburl"]); return b
     except Exception as e: print("commons err",e)
     return None
+import zlib
+BASE_SEED=zlib.crc32(str(d.get('title','x')).encode())%9000+1   # same seed for all scenes helps keep the same character look
 src=[]
 last_ok=None
 def safe_prompt(p):
@@ -192,8 +194,9 @@ def safe_prompt(p):
     return "traditional painted illustration, wide establishing shot, far away, "+re.sub(r"\s+"," ",p).strip()+", empty scene with no people, no faces, no human figures, at most tiny distant silhouettes seen from behind, warm golden light"
 def pollx(prompt,seed):
     prompt=safe_prompt(prompt)
-    u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(prompt+", vertical, high quality, detailed")+f"?width=576&height=1024&nologo=true&model=flux&seed={seed}"
-    r=requests.get(u,timeout=70,headers=UA)
+    suf=", vertical, high quality, detailed" if STYLE=="seerah" else ", photorealistic cinematic 35mm film still, dark realistic documentary look, natural muted colors, soft film grain, shallow depth of field, no text, no watermark, not a cartoon, not CGI"
+    u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(prompt+suf)+f"?width=720&height=1280&nologo=true&model=flux&seed={seed}"
+    r=requests.get(u,timeout=100,headers=UA)
     print("poll",r.status_code,len(r.content),r.text[:80] if r.status_code!=200 else "")
     return r.content if r.status_code==200 and len(r.content)>5000 else None, r.status_code
 def prep(b,im):
@@ -205,10 +208,10 @@ def prep(b,im):
 for i,s in enumerate(segs):
     im=f"w/i{i}.jpg"; how=""; ok=False
     for k in range(6):
-        try: b,code=pollx(s["image"],i*13+k*5+1)
+        try: b,code=pollx(s["image"],BASE_SEED+k*5)
         except Exception as e: print("poll err",e); b,code=None,0
         if b and prep(b,im): how="pollinations"; ok=True; break
-        time.sleep(46 if code==429 else 25)
+        time.sleep(47 if code in (429,402) else 25)
     if not ok and last_ok:
         subprocess.check_call(["cp",last_ok,im]); how="reuse-previous"; ok=True
     if not ok:
