@@ -24,6 +24,7 @@ jobs:
         env:
           P_INPUT: ${{ github.event.inputs.payload }}
           P_DISPATCH: ${{ toJson(github.event.client_payload) }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -o pipefail
           python render.py 2>&1 | tee log.txt
