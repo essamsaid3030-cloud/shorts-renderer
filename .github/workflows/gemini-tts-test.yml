@@ -1,0 +1,30 @@
+name: gemini-tts-test
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'optional style key'
+        required: false
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Gen
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 -m pip install -q requests && python3 gemini_tts_test.py ${{ github.event.inputs.only }} 2>&1 | tee log.txt
+      - name: Release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=gt${{ github.run_id }}
+          FILES=$(ls *.mp4 2>/dev/null || true)
+          gh release create "$TAG" $FILES --title "$TAG" --notes-file log.txt --repo ${{ github.repository }}
+          if [ -f done.txt ]; then while IFS='|' read k t d; do
+            curl -s -X POST -H 'Content-Type: application/json' -d "{\"video_url\":\"https://github.com/${{ github.repository }}/releases/download/$TAG/$k.mp4\",\"chat_id\":\"8959265030\",\"title\":\"Gemini: $t\",\"duration\":\"$d\"}" https://essam-assistant.app.n8n.cloud/webhook/vd-b10133bdad197e23; sleep 2; done < done.txt; fi
