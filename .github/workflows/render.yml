@@ -1,0 +1,106 @@
+name: render
+on:
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: 'JSON: {"title","voice","chat_id","callback","segments":[{"text","image"}]}'
+        required: true
+  repository_dispatch:
+    types: [render]
+permissions:
+  contents: write
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-core
+          pip install -q edge-tts requests
+      - name: Render
+        env:
+          P_INPUT: ${{ github.event.inputs.payload }}
+          P_DISPATCH: ${{ toJson(github.event.client_payload) }}
+        run: |
+          cat > render.py <<'PY'
+          import os, json, subprocess, asyncio, time, urllib.parse, requests, edge_tts
+          raw = os.environ.get("P_INPUT") or os.environ.get("P_DISPATCH")
+          d = json.loads(raw)
+          voice = d.get("voice", "ar-EG-SalmaNeural")
+          W, H = 720, 1280
+          segs = d["segments"]
+          os.makedirs("w", exist_ok=True)
+          def dur(f):
+              return float(subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0",f]).decode().strip())
+          def ts(t):
+              h=int(t//3600); m=int(t%3600//60); s=t%60
+              return "%d:%02d:%05.2f"%(h,m,s)
+          def wrap(words):
+              lines=[];cur=""
+              for w in words:
+                  if len(cur)+len(w)+1>22 and cur: lines.append(cur);cur=w
+                  else: cur=(cur+" "+w).strip()
+              if cur: lines.append(cur)
+              return "\\N".join(lines)
+          async def tts(text, f):
+              await edge_tts.Communicate(text, voice).save(f)
+          clips=[]; ass=[]; t0=0.0
+          for i,s in enumerate(segs):
+              a=f"w/a{i}.mp3"; im=f"w/i{i}.jpg"; v=f"w/v{i}.mp4"
+              asyncio.run(tts(s["text"], a))
+              D=dur(a)+0.3
+              ok=False
+              for k in range(4):
+                  try:
+                      u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(s["image"])+f"?width={W}&height={H}&nologo=true&seed={i+k}"
+                      r=requests.get(u,timeout=90)
+                      if r.status_code==200 and len(r.content)>5000:
+                          open(im,"wb").write(r.content); ok=True; break
+                  except Exception as e: print("img err",e)
+                  time.sleep(5)
+              if not ok:
+                  subprocess.check_call(["ffmpeg","-y","-f","lavfi","-i",f"color=c=0x203040:s={W}x{H}","-frames:v","1",im])
+              fr=int(D*25)
+              subprocess.check_call(["ffmpeg","-y","-loglevel","error","-loop","1","-i",im,"-i",a,"-t",f"{D:.2f}",
+                "-vf",f"scale={W*2}:{H*2},zoompan=z='min(zoom+0.0008,1.2)':d={fr}:s={W}x{H}:fps=25,format=yuv420p",
+                "-c:v","libx264","-preset","veryfast","-c:a","aac","-b:a","96k","-shortest",v])
+              clips.append(v)
+              words=s["text"].split(); n=max(1,(len(words)+3)//4)
+              chunks=[words[j:j+4] for j in range(0,len(words),4)]
+              tot=sum(len(" ".join(c)) for c in chunks); tt=t0
+              for c in chunks:
+                  l=(D-0.3)*len(" ".join(c))/tot
+                  ass.append(f"Dialogue: 0,{ts(tt)},{ts(tt+l)},C,,0,0,0,,{wrap(c)}")
+                  tt+=l
+              t0+=D
+          hdr="[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: C,Noto Sans Arabic,46,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,1,2,40,40,260,1\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+          open("c.ass","w",encoding="utf-8").write(hdr+"\n".join(ass)+"\n")
+          open("list.txt","w").write("".join(f"file '{c}'\n" for c in clips))
+          subprocess.check_call(["ffmpeg","-y","-loglevel","error","-f","concat","-i","list.txt","-vf","ass=c.ass","-c:v","libx264","-preset","veryfast","-crf","26","-c:a","aac","-b:a","96k","-movflags","+faststart","out.mp4"])
+          print("size MB", os.path.getsize("out.mp4")/1e6, "dur", dur("out.mp4"))
+          open("dur.txt","w").write(str(dur("out.mp4")))
+          json.dump({"callback":d.get("callback"),"chat_id":d.get("chat_id"),"title":d.get("title","")},open("meta.json","w"))
+          PY
+          python render.py
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v${{ github.run_id }}
+          gh release create "$TAG" out.mp4 --title "$TAG" --notes "render" --repo ${{ github.repository }}
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/out.mp4"
+          echo "VIDEO_URL=$URL" | tee -a $GITHUB_STEP_SUMMARY
+          python - <<PY
+          import json,requests
+          m=json.load(open("meta.json"))
+          if m.get("callback"):
+              r=requests.post(m["callback"],json={"video_url":"$URL","chat_id":m.get("chat_id"),"title":m.get("title"),"duration":open("dur.txt").read()},timeout=30)
+              print("callback",r.status_code)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video
+          path: out.mp4
