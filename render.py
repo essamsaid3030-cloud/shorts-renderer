@@ -199,6 +199,18 @@ def pollx(prompt,seed):
     r=requests.get(u,timeout=100,headers=UA)
     print("poll",r.status_code,len(r.content),r.text[:80] if r.status_code!=200 else "")
     return r.content if r.status_code==200 and len(r.content)>5000 else None, r.status_code
+CFA=os.environ.get("CF_ACCOUNT_ID","").strip(); CFT=os.environ.get("CF_API_TOKEN","").strip()
+CF_OK=bool(CFA and CFT)
+def fluxcf(prompt,seed):
+    import base64
+    prompt=safe_prompt(prompt)
+    suf=", vertical composition, high quality, detailed" if STYLE=="seerah" else ", photorealistic cinematic 35mm film still, dark realistic documentary look, natural muted colors, soft film grain, shallow depth of field, no text, no watermark, not a cartoon, not CGI"
+    r=requests.post(f"https://api.cloudflare.com/client/v4/accounts/{CFA}/ai/run/@cf/black-forest-labs/flux-1-schnell",headers={"Authorization":"Bearer "+CFT,"Content-Type":"application/json"},json={"prompt":(prompt+suf)[:2000],"steps":6,"seed":int(seed)},timeout=120)
+    print("cf-flux",r.status_code,len(r.content),r.text[:120] if r.status_code!=200 else "")
+    if r.status_code!=200: return None, r.status_code
+    try: b=base64.b64decode(r.json()["result"]["image"])
+    except Exception as e: print("cf parse",e); return None, 0
+    return (b if len(b)>5000 else None), 200
 def prep(b,im):
     open("w/raw.bin","wb").write(b)
     try:
@@ -207,7 +219,14 @@ def prep(b,im):
         print("convert fail",e); return False
 for i,s in enumerate(segs):
     im=f"w/i{i}.jpg"; how=""; ok=False
-    for k in range(6):
+    if CF_OK:
+        for k in range(2):
+            try: b,code=fluxcf(s["image"],BASE_SEED+k*5)
+            except Exception as e: print("cf err",e); b,code=None,0
+            if b and prep(b,im): how="cf-flux"; ok=True; break
+            if code in (429,401,403): break
+            time.sleep(3)
+    for k in range(0 if ok else 6):
         try: b,code=pollx(s["image"],BASE_SEED+k*5)
         except Exception as e: print("poll err",e); b,code=None,0
         if b and prep(b,im): how="pollinations"; ok=True; break
@@ -220,9 +239,9 @@ for i,s in enumerate(segs):
     if not ok:
         how="gradient"
         sh("-f","lavfi","-i",f"gradients=s={W*2}x{H*2}:c0=0x1b2a49:c1=0x7a3e65:seed={i}:d=1","-frames:v","1",im)
-    if how=="pollinations": last_ok=im
+    if how in ("pollinations","cf-flux"): last_ok=im
     src.append(how); print("scene",i,"image",how)
-    time.sleep(8)
+    time.sleep(1 if how=="cf-flux" else 8)
 # ---------- Ken Burns clips
 MOVES=[
  "z='1+0.0009*on':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2'",
