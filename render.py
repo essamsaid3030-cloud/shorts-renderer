@@ -8,7 +8,7 @@ if not d.get("segments"):
         if len(tx.strip())>2:
             d["segments"].append({"text": tx.strip(), "image": im.strip() or "cinematic abstract background"})
 voice = "ar-EG-ShakirNeural"  # deep Egyptian male storyteller (payload voice ignored)
-RATE, PITCH = "+6%", "-10Hz"
+RATE, PITCH = "+0%", "-8Hz"
 W, H, FPS, F = 720, 1280, 25, 0.6   # F = crossfade seconds
 segs = d["segments"]
 os.makedirs("w", exist_ok=True)
@@ -32,19 +32,53 @@ async def tts(text, f):
             last=e; print("tts err",k,v,repr(e)[:80])
         await asyncio.sleep(2+k)
     raise last or RuntimeError("tts failed")
+
+ONES=["صفر","واحد","اتنين","تلاتة","اربعة","خمسة","ستة","سبعة","تمانية","تسعة","عشرة","احداشر","اتناشر","تلتاشر","اربعتاشر","خمستاشر","ستاشر","سبعتاشر","تمنتاشر","تسعتاشر"]
+TENS={2:"عشرين",3:"تلاتين",4:"اربعين",5:"خمسين",6:"ستين",7:"سبعين",8:"تمانين",9:"تسعين"}
+HUND={1:"مية",2:"ميتين",3:"تلتمية",4:"ربعمية",5:"خمسمية",6:"ستمية",7:"سبعمية",8:"تمنمية",9:"تسعمية"}
+def n2w(n):
+    if n<20: return ONES[n]
+    if n<100:
+        o,t=n%10,n//10
+        return TENS[t] if o==0 else ONES[o]+" و"+TENS[t]
+    if n<1000:
+        h,r=divmod(n,100); return HUND[h] if r==0 else HUND[h]+" و"+n2w(r)
+    if n<1000000:
+        k,r=divmod(n,1000)
+        kw="الف" if k==1 else "الفين" if k==2 else (n2w(k)+(" الاف" if k<=10 else " الف"))
+        return kw if r==0 else kw+" و"+n2w(r)
+    return str(n)
+def prep(t):
+    t=t.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace("ـ","")
+    t=re.sub(r"(\d+)\s*%",lambda m:n2w(int(m.group(1)))+" في المية",t)
+    t=re.sub(r"\d+",lambda m:n2w(int(m.group(0))),t)
+    return re.sub(r"\s+"," ",t).strip()
+def clauses(sn):
+    parts=[p.strip() for p in re.split(r"(?<=[،,؛:])\s+",sn) if p.strip()]
+    out=[]
+    for p in parts:
+        if out and len(p.split())<3: out[-1]+=" "+p
+        else: out.append(p)
+    if len(out)>1 and len(out[0].split())<3: out[1]=out[0]+" "+out[1]; out=out[1:]
+    return out
 # ---------- narration: per sentence, with pauses
 sent_t=[]   # per scene: list of (offset, length, text)
 scene_wav=[]; S=[]
-sil=f"w/sil.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.35",sil)
+sil=f"w/sil.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.4",sil)
+sil2="w/sil2.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.2",sil2)
 lead=f"w/lead.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.2",lead)
 for i,s in enumerate(segs):
     sentences=[x.strip() for x in re.split(r"(?<=[.!?؟…])\s+|\n+", s["text"]) if len(x.strip())>1]
     parts=[lead]; off=0.2; info=[]
-    for j,sn in enumerate(sentences):
-        mp=f"w/s{i}_{j}.mp3"; wv=f"w/s{i}_{j}.wav"
-        v=asyncio.run(tts(sn,mp)); print("tts",i,j,v,len(sn))
-        sh("-i",mp,"-ar","24000","-ac","1",wv)
-        L=dur(wv); info.append((off,L,sn)); parts+= [wv,sil]; off+=L+0.35
+    k=0
+    for sn in sentences:
+        cl=clauses(sn)
+        for ci,c in enumerate(cl):
+            mp=f"w/s{i}_{k}.mp3"; wv=f"w/s{i}_{k}.wav"; k+=1
+            v=asyncio.run(tts(prep(c),mp)); print("tts",i,k,v,len(c))
+            sh("-i",mp,"-ar","24000","-ac","1",wv)
+            L=dur(wv); gap=sil if ci==len(cl)-1 else sil2; gl=0.4 if ci==len(cl)-1 else 0.2
+            info.append((off,L,c)); parts+=[wv,gap]; off+=L+gl
     tot=off+0.25
     open(f"w/l{i}.txt","w").write("".join(f"file '{os.path.abspath(p)}'\n" for p in parts))
     sh("-f","concat","-safe","0","-i",f"w/l{i}.txt","-af","apad","-t",f"{tot:.3f}","-ar","24000","-ac","1",f"w/scene{i}.wav")
@@ -140,7 +174,7 @@ fc=""; prev="[0:v]"; acc=D[0]
 for k in range(1,n):
     off=acc-F; fc+=f"{prev}[{k}:v]xfade=transition=fade:duration={F}:offset={off:.3f}[x{k}];"; prev=f"[x{k}]"; acc=off+D[k]
 fc+=f"{prev}ass=c.ass[v];" if n>1 else "[0:v]ass=c.ass[v];"
-fc+=f"[{n}:a]equalizer=f=150:t=h:w=100:g=3,aecho=0.8:0.4:70:0.12,volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
+fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
 sh(*ins,"-i","w/nar.wav","-i","w/music.wav","-filter_complex",fc,"-map","[v]","-map","[a]","-c:v","libx264","-preset","veryfast","-crf","24","-c:a","aac","-b:a","128k","-movflags","+faststart","-shortest","out.mp4")
 print("images",src,"size MB",os.path.getsize("out.mp4")/1e6,"dur",dur("out.mp4"),"narr",dur("w/nar.wav"))
 open("dur.txt","w").write(str(dur("out.mp4")))
