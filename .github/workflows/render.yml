@@ -85,6 +85,7 @@ jobs:
           open("dur.txt","w").write(str(dur("out.mp4")))
           json.dump({"callback":d.get("callback"),"chat_id":d.get("chat_id"),"title":d.get("title","")},open("meta.json","w"))
           PY
+          set -o pipefail
           python render.py 2>&1 | tee log.txt
       - name: Release
         env:
@@ -101,6 +102,13 @@ jobs:
               r=requests.post(m["callback"],json={"video_url":"$URL","chat_id":m.get("chat_id"),"title":m.get("title"),"duration":open("dur.txt").read()},timeout=30)
               print("callback",r.status_code)
           PY
+      - name: Failure log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tail -c 3000 log.txt > flog.txt || echo nolog > flog.txt
+          gh release create "fail-${{ github.run_id }}" --title fail --notes-file flog.txt --repo ${{ github.repository }}
       - uses: actions/upload-artifact@v4
         with:
           name: video
