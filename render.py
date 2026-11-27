@@ -71,30 +71,36 @@ def commons(prompt):
     except Exception as e: print("commons err",e)
     return None
 src=[]
-last_poll=0
+last_ok=None
+def pollx(prompt,seed):
+    u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(prompt+", vertical, high quality, detailed")+f"?width=576&height=1024&nologo=true&model=flux&seed={seed}"
+    r=requests.get(u,timeout=70,headers=UA)
+    print("poll",r.status_code,len(r.content),r.text[:80] if r.status_code!=200 else "")
+    return r.content if r.status_code==200 and len(r.content)>5000 else None, r.status_code
+def prep(b,im):
+    open("w/raw.bin","wb").write(b)
+    try:
+        sh("-i","w/raw.bin","-vf",f"crop=iw:ih*0.93:0:0,scale={W*2}:{H*2}:force_original_aspect_ratio=increase,crop={W*2}:{H*2}",im); return True
+    except Exception as e:
+        print("convert fail",e); return False
 for i,s in enumerate(segs):
-    im=f"w/i{i}.jpg"; b=None; how=""
-    for k in range(3):
-        wait=46-(time.time()-last_poll)
-        if last_poll and wait>0: time.sleep(wait)
-        last_poll=time.time()
-        try: b=poll(s["image"],i*7+k)
-        except Exception as e: print("poll err",e)
-        if b: how="pollinations"; break
-        if k==1:
-            b=commons(s["image"])
-            if b: how="commons"; break
-    if not b:
-        b=commons(s["image"]); how="commons" if b else ""
-    if b:
-        open("w/raw.bin","wb").write(b)
-        try:
-            sh("-i","w/raw.bin","-vf",f"crop=iw:ih*0.93:0:0,scale={W*2}:{H*2}:force_original_aspect_ratio=increase,crop={W*2}:{H*2}",im)
-        except Exception as e: print("convert fail",e); b=None
-    if not b:
+    im=f"w/i{i}.jpg"; how=""; ok=False
+    for k in range(6):
+        try: b,code=pollx(s["image"],i*13+k*5+1)
+        except Exception as e: print("poll err",e); b,code=None,0
+        if b and prep(b,im): how="pollinations"; ok=True; break
+        time.sleep(46 if code==429 else 25)
+    if not ok and last_ok:
+        subprocess.check_call(["cp",last_ok,im]); how="reuse-previous"; ok=True
+    if not ok:
+        b=commons(s["image"])
+        if b and prep(b,im): how="commons"; ok=True
+    if not ok:
         how="gradient"
         sh("-f","lavfi","-i",f"gradients=s={W*2}x{H*2}:c0=0x1b2a49:c1=0x7a3e65:seed={i}:d=1","-frames:v","1",im)
+    if how=="pollinations": last_ok=im
     src.append(how); print("scene",i,"image",how)
+    time.sleep(8)
 # ---------- Ken Burns clips
 MOVES=[
  "z='1+0.0009*on':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2'",
