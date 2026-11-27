@@ -53,7 +53,7 @@ jobs:
               asyncio.run(tts(s["text"], a))
               D=dur(a)+0.3
               ok=False
-              for k in range(4):
+              for k in range(3):
                   try:
                       u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(s["image"])+f"?width={W}&height={H}&nologo=true&seed={i+k}"
                       r=requests.get(u,timeout=90,headers={"User-Agent":"Mozilla/5.0"})
@@ -61,7 +61,7 @@ jobs:
                       if r.status_code==200 and len(r.content)>5000:
                           open(im,"wb").write(r.content); ok=True; break
                   except Exception as e: print("img err",e)
-                  time.sleep(5)
+                  time.sleep(46)
               if not ok:
                   subprocess.check_call(["ffmpeg","-y","-f","lavfi","-i",f"color=c=0x203040:s={W}x{H}","-frames:v","1",im])
               fr=int(D*25)
