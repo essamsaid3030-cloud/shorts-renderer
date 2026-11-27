@@ -7,8 +7,8 @@ if not d.get("segments"):
         tx, im = (part.split("@@",1) + [""])[:2] if "@@" in part else (part, "")
         if len(tx.strip())>2:
             d["segments"].append({"text": tx.strip(), "image": im.strip() or "cinematic abstract background"})
-voice = d.get("voice") or "ar-EG-SalmaNeural"
-RATE, PITCH = "-6%", "-2Hz"
+voice = "ar-EG-ShakirNeural"  # deep Egyptian male storyteller (payload voice ignored)
+RATE, PITCH = "+6%", "-10Hz"
 W, H, FPS, F = 720, 1280, 25, 0.6   # F = crossfade seconds
 segs = d["segments"]
 os.makedirs("w", exist_ok=True)
@@ -24,13 +24,13 @@ def wrap(words):
     return "\\N".join(lines)
 async def tts(text, f):
     last=None
-    for k,v in enumerate([voice,voice,"ar-EG-SalmaNeural","ar-EG-SalmaNeural","ar-SA-HamedNeural"]):
+    for k,v in enumerate([voice]*8+["ar-SA-HamedNeural"]*3):
         try:
             await edge_tts.Communicate(text, v, rate=RATE, pitch=PITCH).save(f)
             if os.path.getsize(f)>1000: return v
         except Exception as e:
-            last=e; print("tts err",k,v,e)
-        await asyncio.sleep(2)
+            last=e; print("tts err",k,v,repr(e)[:80])
+        await asyncio.sleep(2+k)
     raise last or RuntimeError("tts failed")
 # ---------- narration: per sentence, with pauses
 sent_t=[]   # per scene: list of (offset, length, text)
@@ -140,7 +140,7 @@ fc=""; prev="[0:v]"; acc=D[0]
 for k in range(1,n):
     off=acc-F; fc+=f"{prev}[{k}:v]xfade=transition=fade:duration={F}:offset={off:.3f}[x{k}];"; prev=f"[x{k}]"; acc=off+D[k]
 fc+=f"{prev}ass=c.ass[v];" if n>1 else "[0:v]ass=c.ass[v];"
-fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
+fc+=f"[{n}:a]equalizer=f=150:t=h:w=100:g=3,aecho=0.8:0.4:70:0.12,volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
 sh(*ins,"-i","w/nar.wav","-i","w/music.wav","-filter_complex",fc,"-map","[v]","-map","[a]","-c:v","libx264","-preset","veryfast","-crf","24","-c:a","aac","-b:a","128k","-movflags","+faststart","-shortest","out.mp4")
 print("images",src,"size MB",os.path.getsize("out.mp4")/1e6,"dur",dur("out.mp4"),"narr",dur("w/nar.wav"))
 open("dur.txt","w").write(str(dur("out.mp4")))
