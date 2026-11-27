@@ -85,13 +85,13 @@ jobs:
           open("dur.txt","w").write(str(dur("out.mp4")))
           json.dump({"callback":d.get("callback"),"chat_id":d.get("chat_id"),"title":d.get("title","")},open("meta.json","w"))
           PY
-          python render.py
+          python render.py 2>&1 | tee log.txt
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG=v${{ github.run_id }}
-          gh release create "$TAG" out.mp4 --title "$TAG" --notes "render" --repo ${{ github.repository }}
+          gh release create "$TAG" out.mp4 --title "$TAG" --notes-file log.txt --repo ${{ github.repository }}
           URL="https://github.com/${{ github.repository }}/releases/download/$TAG/out.mp4"
           echo "VIDEO_URL=$URL" | tee -a $GITHUB_STEP_SUMMARY
           python - <<PY
