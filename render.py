@@ -8,7 +8,10 @@ if not d.get("segments"):
         if len(tx.strip())>2:
             d["segments"].append({"text": tx.strip(), "image": im.strip() or "cinematic abstract background"})
 voice = "ar-EG-ShakirNeural"  # deep Egyptian male storyteller (payload voice ignored)
-RATE, PITCH = "+0%", "-8Hz"
+STYLE = "seerah" if "seerah" in str(d.get("style","")).lower() else "story"
+if STYLE=="seerah": RATE, PITCH, GAP_S, GAP_C, MUSIC = "-8%", "-6Hz", 0.6, 0.3, 0.0
+else: RATE, PITCH, GAP_S, GAP_C, MUSIC = "+0%", "-8Hz", 0.4, 0.2, 0.07
+print("STYLE",STYLE,RATE,PITCH)
 W, H, FPS, F = 720, 1280, 25, 0.6   # F = crossfade seconds
 segs = d["segments"]
 os.makedirs("w", exist_ok=True)
@@ -64,8 +67,8 @@ def clauses(sn):
 # ---------- narration: per sentence, with pauses
 sent_t=[]   # per scene: list of (offset, length, text)
 scene_wav=[]; S=[]
-sil=f"w/sil.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.4",sil)
-sil2="w/sil2.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.2",sil2)
+sil=f"w/sil.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t",str(GAP_S),sil)
+sil2="w/sil2.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t",str(GAP_C),sil2)
 lead=f"w/lead.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.2",lead)
 for i,s in enumerate(segs):
     sentences=[x.strip() for x in re.split(r"(?<=[.!?؟…])\s+|\n+", s["text"]) if len(x.strip())>1]
@@ -77,7 +80,7 @@ for i,s in enumerate(segs):
             mp=f"w/s{i}_{k}.mp3"; wv=f"w/s{i}_{k}.wav"; k+=1
             v=asyncio.run(tts(prep(c),mp)); print("tts",i,k,v,len(c))
             sh("-i",mp,"-ar","24000","-ac","1",wv)
-            L=dur(wv); gap=sil if ci==len(cl)-1 else sil2; gl=0.4 if ci==len(cl)-1 else 0.2
+            L=dur(wv); gap=sil if ci==len(cl)-1 else sil2; gl=GAP_S if ci==len(cl)-1 else GAP_C
             info.append((off,L,c)); parts+=[wv,gap]; off+=L+gl
     tot=off+0.25
     open(f"w/l{i}.txt","w").write("".join(f"file '{os.path.abspath(p)}'\n" for p in parts))
@@ -106,7 +109,12 @@ def commons(prompt):
     return None
 src=[]
 last_ok=None
+def safe_prompt(p):
+    if STYLE!="seerah": return p
+    p=re.sub(r"(?i)\b(prophet\w*|muhammad|mohammed|companion\w*|sahaba|face\w*|portrait|close-?up|man|men|woman|women|person|people|boy|girl|child\w*|rider\w*|warrior\w*|soldier\w*)\b","",p)
+    return "traditional painted illustration, wide establishing shot, far away, "+re.sub(r"\s+"," ",p).strip()+", empty scene with no people, no faces, no human figures, at most tiny distant silhouettes seen from behind, warm golden light"
 def pollx(prompt,seed):
+    prompt=safe_prompt(prompt)
     u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(prompt+", vertical, high quality, detailed")+f"?width=576&height=1024&nologo=true&model=flux&seed={seed}"
     r=requests.get(u,timeout=70,headers=UA)
     print("poll",r.status_code,len(r.content),r.text[:80] if r.status_code!=200 else "")
@@ -174,7 +182,7 @@ fc=""; prev="[0:v]"; acc=D[0]
 for k in range(1,n):
     off=acc-F; fc+=f"{prev}[{k}:v]xfade=transition=fade:duration={F}:offset={off:.3f}[x{k}];"; prev=f"[x{k}]"; acc=off+D[k]
 fc+=f"{prev}ass=c.ass[v];" if n>1 else "[0:v]ass=c.ass[v];"
-fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
+fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume={MUSIC}[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
 sh(*ins,"-i","w/nar.wav","-i","w/music.wav","-filter_complex",fc,"-map","[v]","-map","[a]","-c:v","libx264","-preset","veryfast","-crf","24","-c:a","aac","-b:a","128k","-movflags","+faststart","-shortest","out.mp4")
 print("images",src,"size MB",os.path.getsize("out.mp4")/1e6,"dur",dur("out.mp4"),"narr",dur("w/nar.wav"))
 open("dur.txt","w").write(str(dur("out.mp4")))
