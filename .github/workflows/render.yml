@@ -29,6 +29,7 @@ jobs:
           import os, json, subprocess, asyncio, time, urllib.parse, requests, edge_tts
           raw = os.environ.get("P_INPUT") or os.environ.get("P_DISPATCH")
           d = json.loads(raw)
+          print("RAW", json.dumps(d, ensure_ascii=False)[:1500])
           if not d.get("segments"):
               d["segments"] = []
               for part in str(d.get("script","")).split("|||"):
