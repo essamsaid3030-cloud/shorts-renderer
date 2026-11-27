@@ -96,7 +96,7 @@ def gem_tts(text,style,voice):
                 if data:
                     import base64; open("w/gem.wav","wb").write(base64.b64decode(data)); return True
             else: print("gemini err",r.text[:300].replace(GKEY,"***"))
-            if r.status_code in (400,401,403): return False
+            if r.status_code in (400,401,403,429): return False   # 429 = free daily limit, retrying only wastes quota
         except Exception as e: print("gemini exc",repr(e)[:100].replace(GKEY,"***"))
         time.sleep(8*(k+1))
     return False
