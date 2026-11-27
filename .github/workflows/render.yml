@@ -56,7 +56,8 @@ jobs:
               for k in range(4):
                   try:
                       u="https://image.pollinations.ai/prompt/"+urllib.parse.quote(s["image"])+f"?width={W}&height={H}&nologo=true&seed={i+k}"
-                      r=requests.get(u,timeout=90)
+                      r=requests.get(u,timeout=90,headers={"User-Agent":"Mozilla/5.0"})
+                      print("img",i,k,r.status_code,len(r.content),r.headers.get("content-type"),r.text[:150] if r.status_code!=200 else "")
                       if r.status_code==200 and len(r.content)>5000:
                           open(im,"wb").write(r.content); ok=True; break
                   except Exception as e: print("img err",e)
