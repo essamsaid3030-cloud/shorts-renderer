@@ -9,8 +9,8 @@ if not d.get("segments"):
             d["segments"].append({"text": tx.strip(), "image": im.strip() or "cinematic abstract background"})
 voice = "ar-EG-ShakirNeural"  # deep Egyptian male storyteller (payload voice ignored)
 STYLE = "seerah" if "seerah" in str(d.get("style","")).lower() else "story"
-if STYLE=="seerah": RATE, PITCH, GAP_S, GAP_C, MUSIC = "-8%", "-6Hz", 0.6, 0.3, 0.0
-else: RATE, PITCH, GAP_S, GAP_C, MUSIC = "+0%", "-8Hz", 0.4, 0.2, 0.07
+if STYLE=="seerah": RATE, PITCH, GAP_S, GAP_C, MUSIC = "-12%", "-6Hz", 0.65, 0.3, 0.0
+else: RATE, PITCH, GAP_S, GAP_C, MUSIC = "-10%", "-6Hz", 0.5, 0.25, 0.06
 print("STYLE",STYLE,RATE,PITCH)
 W, H, FPS, F = 720, 1280, 25, 0.6   # F = crossfade seconds
 segs = d["segments"]
@@ -25,11 +25,11 @@ def wrap(words):
         else: cur=(cur+" "+w).strip()
     if cur: lines.append(cur)
     return "\\N".join(lines)
-async def tts(text, f):
+async def tts(text, f, rate=None, pitch=None):
     last=None
     for k,v in enumerate([voice]*8+["ar-SA-HamedNeural"]*3):
         try:
-            await edge_tts.Communicate(text, v, rate=RATE, pitch=PITCH).save(f)
+            await edge_tts.Communicate(text, v, rate=rate or RATE, pitch=pitch or PITCH).save(f)
             if os.path.getsize(f)>1000: return v
         except Exception as e:
             last=e; print("tts err",k,v,repr(e)[:80])
@@ -51,6 +51,15 @@ def n2w(n):
         kw="الف" if k==1 else "الفين" if k==2 else (n2w(k)+(" الاف" if k<=10 else " الف"))
         return kw if r==0 else kw+" و"+n2w(r)
     return str(n)
+def pct(base,delta): return "%+d%%"%(int(base.replace("%",""))+delta)
+def hz(base,delta): return "%+dHz"%(int(base.replace("Hz",""))+delta)
+def prosody(c,last_in_sentence,sent_end):
+    e=sent_end if last_in_sentence else ","
+    if e in "?؟": return pct(RATE,2),hz(PITCH,5)          # rising question
+    if e=="!": return pct(RATE,3),hz(PITCH,3)              # energetic
+    if e=="…": return pct(RATE,-6),hz(PITCH,-4)            # trailing, slow
+    if e==".": return pct(RATE,-4),hz(PITCH,-4)            # falling statement end
+    return RATE,hz(PITCH,2)                               # comma: rising, continues
 def prep(t):
     t=t.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩","0123456789")).replace("ـ","")
     t=re.sub(r"(\d+)\s*%",lambda m:n2w(int(m.group(1)))+" في المية",t)
@@ -69,18 +78,22 @@ sent_t=[]   # per scene: list of (offset, length, text)
 scene_wav=[]; S=[]
 sil=f"w/sil.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t",str(GAP_S),sil)
 sil2="w/sil2.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t",str(GAP_C),sil2)
+sil3="w/sil3.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t",str(GAP_S+0.25),sil3)
 lead=f"w/lead.wav"; sh("-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","0.2",lead)
 for i,s in enumerate(segs):
-    sentences=[x.strip() for x in re.split(r"(?<=[.!?؟…])\s+|\n+", s["text"]) if len(x.strip())>1]
+    sentences=[x.strip() for x in re.split(r"(?<=[.!?؟…])\s+|\n+", s["text"].replace("...","…")) if len(x.strip())>1]
     parts=[lead]; off=0.2; info=[]
     k=0
     for sn in sentences:
-        cl=clauses(sn)
+        cl=clauses(sn); se=sn.rstrip()[-1:]
         for ci,c in enumerate(cl):
             mp=f"w/s{i}_{k}.mp3"; wv=f"w/s{i}_{k}.wav"; k+=1
-            v=asyncio.run(tts(prep(c),mp)); print("tts",i,k,v,len(c))
+            lastc=(ci==len(cl)-1); r_,p_=prosody(c,lastc,se)
+            v=asyncio.run(tts(prep(c),mp,r_,p_)); print("tts",i,k,v,r_,p_,len(c))
             sh("-i",mp,"-ar","24000","-ac","1",wv)
-            L=dur(wv); gap=sil if ci==len(cl)-1 else sil2; gl=GAP_S if ci==len(cl)-1 else GAP_C
+            L=dur(wv)
+            if lastc: gl=GAP_S+(0.25 if se=="…" else 0); gap=sil if se!="…" else sil3
+            else: gl=GAP_C; gap=sil2
             info.append((off,L,c)); parts+=[wv,gap]; off+=L+gl
     tot=off+0.25
     open(f"w/l{i}.txt","w").write("".join(f"file '{os.path.abspath(p)}'\n" for p in parts))
