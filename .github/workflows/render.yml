@@ -25,6 +25,8 @@ jobs:
           P_INPUT: ${{ github.event.inputs.payload }}
           P_DISPATCH: ${{ toJson(github.event.client_payload) }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
           set -o pipefail
           python render.py 2>&1 | tee log.txt
