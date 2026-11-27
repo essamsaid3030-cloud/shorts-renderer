@@ -205,7 +205,7 @@ def fluxcf(prompt,seed):
     import base64
     prompt=safe_prompt(prompt)
     suf=", vertical composition, high quality, detailed" if STYLE=="seerah" else ", photorealistic cinematic 35mm film still, dark realistic documentary look, natural muted colors, soft film grain, shallow depth of field, no text, no watermark, not a cartoon, not CGI"
-    r=requests.post(f"https://api.cloudflare.com/client/v4/accounts/{CFA}/ai/run/@cf/black-forest-labs/flux-1-schnell",headers={"Authorization":"Bearer "+CFT,"Content-Type":"application/json"},json={"prompt":(prompt+suf)[:2000],"steps":6,"seed":int(seed)},timeout=120)
+    r=requests.post(f"https://api.cloudflare.com/client/v4/accounts/{CFA}/ai/run/@cf/black-forest-labs/flux-1-schnell",headers={"Authorization":"Bearer "+CFT,"Content-Type":"application/json"},json={"prompt":(prompt+suf)[:2000],"steps":6},timeout=120)
     print("cf-flux",r.status_code,len(r.content),r.text[:120] if r.status_code!=200 else "")
     if r.status_code!=200: return None, r.status_code
     try: b=base64.b64decode(r.json()["result"]["image"])
@@ -224,7 +224,7 @@ for i,s in enumerate(segs):
             try: b,code=fluxcf(s["image"],BASE_SEED+k*5)
             except Exception as e: print("cf err",e); b,code=None,0
             if b and prep(b,im): how="cf-flux"; ok=True; break
-            if code in (429,401,403): break
+            if code in (400,429,401,403): break
             time.sleep(3)
     for k in range(0 if ok else 6):
         try: b,code=pollx(s["image"],BASE_SEED+k*5)
