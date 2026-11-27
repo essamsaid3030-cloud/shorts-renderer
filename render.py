@@ -89,7 +89,7 @@ for i,s in enumerate(segs):
     if b:
         open("w/raw.bin","wb").write(b)
         try:
-            sh("-i","w/raw.bin","-vf",f"scale={W*2}:{H*2}:force_original_aspect_ratio=increase,crop={W*2}:{H*2}",im)
+            sh("-i","w/raw.bin","-vf",f"crop=iw:ih*0.93:0:0,scale={W*2}:{H*2}:force_original_aspect_ratio=increase,crop={W*2}:{H*2}",im)
         except Exception as e: print("convert fail",e); b=None
     if not b:
         how="gradient"
@@ -118,7 +118,7 @@ for i,info in enumerate(sent_t):
         tot=sum(len(" ".join(c)) for c in chunks); tt=start+off
         for c in chunks:
             l=L*len(" ".join(c))/tot
-            ass.append(f"Dialogue: 0,{ts(tt)},{ts(tt+l)},C,,0,0,0,,{wrap(c)}"); tt+=l
+            ass.append(f"Dialogue: 0,{ts(tt)},{ts(tt+l)},C,,0,0,0,,{wrap([x for x in c]).rstrip(chr(46)+chr(1548)+chr(44))}"); tt+=l
     start+=S[i]
 hdr="[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: C,Noto Sans Arabic,46,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,1,2,40,40,260,1\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
 open("c.ass","w",encoding="utf-8").write(hdr+"\n".join(ass)+"\n")
@@ -134,7 +134,7 @@ fc=""; prev="[0:v]"; acc=D[0]
 for k in range(1,n):
     off=acc-F; fc+=f"{prev}[{k}:v]xfade=transition=fade:duration={F}:offset={off:.3f}[x{k}];"; prev=f"[x{k}]"; acc=off+D[k]
 fc+=f"{prev}ass=c.ass[v];" if n>1 else "[0:v]ass=c.ass[v];"
-fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0[a]"
+fc+=f"[{n}:a]volume=1.0[na];[{n+1}:a]volume=0.07[ma];[na][ma]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5[a]"
 sh(*ins,"-i","w/nar.wav","-i","w/music.wav","-filter_complex",fc,"-map","[v]","-map","[a]","-c:v","libx264","-preset","veryfast","-crf","24","-c:a","aac","-b:a","128k","-movflags","+faststart","-shortest","out.mp4")
 print("images",src,"size MB",os.path.getsize("out.mp4")/1e6,"dur",dur("out.mp4"),"narr",dur("w/nar.wav"))
 open("dur.txt","w").write(str(dur("out.mp4")))
