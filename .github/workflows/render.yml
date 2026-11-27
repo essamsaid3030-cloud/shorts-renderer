@@ -30,7 +30,14 @@ jobs:
           raw = os.environ.get("P_INPUT") or os.environ.get("P_DISPATCH")
           d = json.loads(raw)
           if not d.get("segments"):
-              d["segments"] = [{"text": d.get("t%d"%k,""), "image": d.get("i%d"%k,"") or "abstract cinematic background"} for k in range(1,7) if len(str(d.get("t%d"%k,"")).strip())>2]
+              d["segments"] = []
+              for part in str(d.get("script","")).split("|||"):
+                  if "@@" in part:
+                      tx, im = part.split("@@",1)
+                  else:
+                      tx, im = part, ""
+                  if len(tx.strip())>2:
+                      d["segments"].append({"text": tx.strip(), "image": im.strip() or "abstract cinematic background"})
           voice = d.get("voice", "ar-EG-SalmaNeural")
           W, H = 720, 1280
           segs = d["segments"]
